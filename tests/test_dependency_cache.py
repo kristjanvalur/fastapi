@@ -167,7 +167,7 @@ def test_deep_cache(capsys):
 
     with unittest.mock.patch("fastapi.dependencies.utils.solve_dependencies", wrapper):
         response = client.get("/depend-cache-deep/")
-    assert my_counter == 24
+    assert my_counter == 8
     assert response.json() == {
         "aa": {"aa": {"a": 1, "b": 1}},
         "bb": {"bb": {"a": 1, "b": 1}},
