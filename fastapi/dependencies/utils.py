@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Coroutine,
     Dict,
@@ -13,7 +14,6 @@ from typing import (
     Optional,
     Tuple,
     Type,
-    TypeAlias,
     Union,
     cast,
 )
@@ -168,10 +168,6 @@ def get_sub_dependant(
 
 
 CacheKey = Tuple[Optional[Callable[..., Any]], Tuple[str, ...]]
-
-DependencyEval: TypeAlias = Callable[
-    [Dict[str, Any], List[ErrorWrapper], Request], None
-]
 
 
 def get_flat_dependant(
@@ -459,7 +455,7 @@ async def solve_generator(
     return await stack.enter_async_context(cm)
 
 
-def response_factory():
+def response_factory() -> Response:
     response = Response()
     del response.headers["content-length"]
     response.status_code = None  # type: ignore
@@ -472,18 +468,24 @@ class DependencySolverContext:
     body: Optional[Union[Dict[str, Any], FormData]] = None
     dependency_overrides_provider: dataclasses.InitVar[Optional[Any]] = None
     dependency_overrides: Optional[Dict[Any, Any]] = dataclasses.field(init=False)
-    response: Optional[Response] = dataclasses.field(default_factory=response_factory)
+    response: Response = dataclasses.field(default_factory=response_factory)
     background_tasks: Optional[BackgroundTasks] = None
-    values: Optional[Dict[str, Any]] = None
-    errors: Optional[List[ErrorWrapper]] = None
     dependency_cache: Dict[
         Tuple[Callable[..., Any], Tuple[str]], Any
     ] = dataclasses.field(default_factory=dict)
+    values: Dict[str, Any] = dataclasses.field(default_factory=dict)
+    errors: List[ErrorWrapper] = dataclasses.field(default_factory=list)
 
-    def __post_init__(self, dependency_overrides_provider):
+    def __post_init__(self, dependency_overrides_provider: Optional[Any]) -> None:
         self.dependency_overrides = (
             getattr(dependency_overrides_provider, "dependency_overrides", None) or None
         )
+
+
+DependencyGetter = Union[
+    Callable[[DependencySolverContext], None],
+    Callable[[DependencySolverContext], Awaitable[None]],
+]
 
 
 async def solve_dependencies(
@@ -555,16 +557,18 @@ async def solve_dependencies(
     return values, errors
 
 
-def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]]:
+def get_dependent_dependency_getters(
+    dependant: Dependant,
+) -> Optional[List[DependencyGetter]]:
     """
     Process built-in dependencies into a list of getter functions
     """
-    getters = []
+    getters: List[DependencyGetter] = []
     field: ModelField
     for field in dependant.path_params:
 
-        def get_path_param_getter(field: ModelField):
-            def get_param(context: DependencySolverContext):
+        def get_path_param_getter(field: ModelField) -> DependencyGetter:
+            def get_param(context: DependencySolverContext) -> None:
                 return request_field_to_arg(
                     context.values, context.errors, field, context.request.path_params
                 )
@@ -575,8 +579,8 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
 
     for field in dependant.query_params:
 
-        def get_query_param_getter(field: ModelField):
-            def get_param(context: DependencySolverContext):
+        def get_query_param_getter(field: ModelField) -> DependencyGetter:
+            def get_param(context: DependencySolverContext) -> None:
                 return request_field_to_arg(
                     context.values, context.errors, field, context.request.query_params
                 )
@@ -587,8 +591,8 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
 
     for field in dependant.header_params:
 
-        def get_header_param_getter(field: ModelField):
-            def get_param(context: DependencySolverContext):
+        def get_header_param_getter(field: ModelField) -> DependencyGetter:
+            def get_param(context: DependencySolverContext) -> None:
                 return request_field_to_arg(
                     context.values, context.errors, field, context.request.headers
                 )
@@ -598,8 +602,8 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
         getters.append(get_header_param_getter(field))
     for field in dependant.cookie_params:
 
-        def get_cookie_param_getter(field: ModelField):
-            def get_param(context: DependencySolverContext):
+        def get_cookie_param_getter(field: ModelField) -> DependencyGetter:
+            def get_param(context: DependencySolverContext) -> None:
                 return request_field_to_arg(
                     context.values, context.errors, field, context.request.cookies
                 )
@@ -610,7 +614,7 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
 
     if dependant.body_params:
 
-        async def get_body_params(context: DependencySolverContext):
+        async def get_body_params(context: DependencySolverContext) -> None:
             (
                 body_values,
                 body_errors,
@@ -624,51 +628,57 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
 
     if dependant.http_connection_param_name:
 
-        def get_connection(context: DependencySolverContext):
-            context.values[dependant.http_connection_param_name] = context.request
+        def get_connection(context: DependencySolverContext) -> None:
+            context.values[
+                cast(str, dependant.http_connection_param_name)
+            ] = context.request
 
         getters.append(get_connection)
 
     if dependant.request_param_name:
 
-        def get_request(context: DependencySolverContext):
+        def get_request(context: DependencySolverContext) -> None:
             if isinstance(context.request, Request):
-                context.values[dependant.request_param_name] = context.request
+                context.values[
+                    cast(str, dependant.request_param_name)
+                ] = context.request
 
         getters.append(get_request)
 
     if dependant.websocket_param_name:
 
-        def get_websocket(context: DependencySolverContext):
+        def get_websocket(context: DependencySolverContext) -> None:
             if isinstance(context.request, WebSocket):
-                context.values[dependant.websocket_param_name] = context.request
+                context.values[
+                    cast(str, dependant.websocket_param_name)
+                ] = context.request
 
         getters.append(get_websocket)
 
     if dependant.background_tasks_param_name:
 
-        def get_background_tasks(context: DependencySolverContext):
+        def get_background_tasks(context: DependencySolverContext) -> None:
             if context.background_tasks is None:
                 context.background_tasks = BackgroundTasks()
             context.values[
-                dependant.background_tasks_param_name
+                cast(str, dependant.background_tasks_param_name)
             ] = context.background_tasks
 
         getters.append(get_background_tasks)
 
     if dependant.response_param_name:
 
-        def get_response(context: DependencySolverContext):
-            context.values[dependant.response_param_name] = context.response
+        def get_response(context: DependencySolverContext) -> None:
+            context.values[cast(str, dependant.response_param_name)] = context.response
 
         getters.append(get_response)
 
     if dependant.security_scopes_param_name:
 
-        def get_scopes(context: DependencySolverContext):
-            context.values[dependant.security_scopes_param_name] = SecurityScopes(
-                scopes=dependant.security_scopes
-            )
+        def get_scopes(context: DependencySolverContext) -> None:
+            context.values[
+                cast(str, dependant.security_scopes_param_name)
+            ] = SecurityScopes(scopes=dependant.security_scopes)
 
         getters.append(get_scopes)
 
@@ -676,7 +686,7 @@ def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]
 
 
 def request_field_to_arg(
-    values: dict[str, Any],
+    values: Dict[str, Any],
     errors: List[ErrorWrapper],
     field: ModelField,
     received_params: Union[Mapping[str, Any], QueryParams, Headers],

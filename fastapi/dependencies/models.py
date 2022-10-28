@@ -57,4 +57,4 @@ class Dependant:
         # Save the cache key at creation to optimize performance
         self.cache_key = (self.call, tuple(sorted(set(self.security_scopes or []))))
         # callables which get any built-in dependencies
-        self.dependency_getters: List[Any] = None
+        self.dependency_getters: Optional[List[Any]] = None
