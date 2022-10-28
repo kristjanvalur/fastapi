@@ -96,7 +96,7 @@ def dep_cc(
 
 
 @app.get("/depend-cache-deep")
-async def get_scope_counter(
+async def get_depend_cache_deep(
     aa: dict = Depends(dep_aa),
     bb: dict = Depends(dep_bb),
     cc: dict = Depends(dep_cc),
