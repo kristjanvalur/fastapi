@@ -175,7 +175,7 @@ def test_deep_cache(capsys):
         "scope_counter_1": 2,
         "scope_counter_2": 2,
     }
-    if False:
+    if False:  # pragma: no cover
         with capsys.disabled():
             print(repr(response.json()))
 
@@ -184,13 +184,13 @@ def test_deep_cache_perf(capsys):
     """
     A test that can be used to test the performace of the dependency cache
     """
-    return
-    counter_holder["counter"] = 0
-    with capsys.disabled():
-        timer = timeit.Timer(lambda: client.get("/depend-cache-deep/"))
-        n, t = timer.autorange()
-        tpr = t / n
-        rps = n / t
+    if False:  # pragma: no cover
+        counter_holder["counter"] = 0
+        with capsys.disabled():
+            timer = timeit.Timer(lambda: client.get("/depend-cache-deep/"))
+            n, t = timer.autorange()
+            tpr = t / n
+            rps = n / t
 
-        print(f"did {n} requests in {t} seconds")
-        print(f"time per request: {tpr*1000:.2f}ms, rate: {rps:.2f}/s")
+            print(f"did {n} requests in {t} seconds")
+            print(f"time per request: {tpr*1000:.2f}ms, rate: {rps:.2f}/s")
