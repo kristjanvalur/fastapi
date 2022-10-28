@@ -470,7 +470,8 @@ def response_factory():
 class DependencySolverContext:
     request: Union[Request, WebSocket]
     body: Optional[Union[Dict[str, Any], FormData]] = None
-    dependency_overrides_provider: Optional[Any] = None
+    dependency_overrides_provider: dataclasses.InitVar[Optional[Any]] = None
+    dependency_overrides: Optional[Dict[Any, Any]] = dataclasses.field(init=False)
     response: Optional[Response] = dataclasses.field(default_factory=response_factory)
     background_tasks: Optional[BackgroundTasks] = None
     values: Optional[Dict[str, Any]] = None
@@ -478,6 +479,11 @@ class DependencySolverContext:
     dependency_cache: Dict[
         Tuple[Callable[..., Any], Tuple[str]], Any
     ] = dataclasses.field(default_factory=dict)
+
+    def __post_init__(self, dependency_overrides_provider):
+        self.dependency_overrides = (
+            getattr(dependency_overrides_provider, "dependency_overrides", None) or None
+        )
 
 
 async def solve_dependencies(
@@ -502,12 +508,9 @@ async def solve_dependencies(
 
         call = cast(Callable[..., Any], sub_dependant.call)
         use_sub_dependant = sub_dependant
-        dependency_overrides = getattr(
-            context.dependency_overrides_provider, "dependency_overrides", None
-        )
-        if dependency_overrides:
+        if context.dependency_overrides:
             original_call = call
-            call = dependency_overrides.get(original_call, original_call)
+            call = context.dependency_overrides.get(original_call, original_call)
             if call is not original_call:
                 use_path: str = sub_dependant.path  # type: ignore
                 use_sub_dependant = get_dependant(
