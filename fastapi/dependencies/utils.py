@@ -11,7 +11,6 @@ from typing import (
     List,
     Mapping,
     Optional,
-    Sequence,
     Tuple,
     Type,
     TypeAlias,
@@ -574,55 +573,12 @@ async def solve_dependencies(
                 dependency_getter(context)
         background_tasks = context.background_tasks
 
-    if False:
-        path_values, path_errors = request_params_to_args(
-            dependant.path_params, request.path_params
-        )
-        query_values, query_errors = request_params_to_args(
-            dependant.query_params, request.query_params
-        )
-        header_values, header_errors = request_params_to_args(
-            dependant.header_params, request.headers
-        )
-        cookie_values, cookie_errors = request_params_to_args(
-            dependant.cookie_params, request.cookies
-        )
-        values.update(path_values)
-        values.update(query_values)
-        values.update(header_values)
-        values.update(cookie_values)
-        errors += path_errors + query_errors + header_errors + cookie_errors
-        if dependant.body_params:
-            (
-                body_values,
-                body_errors,
-            ) = await request_body_to_args(  # body_params checked above
-                required_params=dependant.body_params, received_body=body
-            )
-            values.update(body_values)
-            errors.extend(body_errors)
-        if dependant.http_connection_param_name:
-            values[dependant.http_connection_param_name] = request
-        if dependant.request_param_name and isinstance(request, Request):
-            values[dependant.request_param_name] = request
-        elif dependant.websocket_param_name and isinstance(request, WebSocket):
-            values[dependant.websocket_param_name] = request
-        if dependant.background_tasks_param_name:
-            if background_tasks is None:
-                background_tasks = BackgroundTasks()
-            values[dependant.background_tasks_param_name] = background_tasks
-        if dependant.response_param_name:
-            values[dependant.response_param_name] = response
-        if dependant.security_scopes_param_name:
-            values[dependant.security_scopes_param_name] = SecurityScopes(
-                scopes=dependant.security_scopes
-            )
     return values, errors, background_tasks, response, dependency_cache
 
 
-def get_dependent_dependency_getters(dependant: Dependant) -> None:
+def get_dependent_dependency_getters(dependant: Dependant) -> Optional[List[Any]]:
     """
-    Process built-in dependencies into a list of getter function
+    Process built-in dependencies into a list of getter functions
     """
     getters = []
     field: ModelField
@@ -737,18 +693,7 @@ def get_dependent_dependency_getters(dependant: Dependant) -> None:
 
         getters.append(get_scopes)
 
-    return getters
-
-
-def request_params_to_args(
-    required_params: Sequence[ModelField],
-    received_params: Union[Mapping[str, Any], QueryParams, Headers],
-) -> Tuple[Dict[str, Any], List[ErrorWrapper]]:
-    values = {}
-    errors = []
-    for field in required_params:
-        request_field_to_arg(values, errors, field, received_params)
-    return values, errors
+    return getters or None
 
 
 def request_field_to_arg(
