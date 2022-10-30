@@ -1,9 +1,11 @@
 import timeit
 import unittest.mock
 
-from fastapi import Depends, FastAPI, Security, Request
+import pytest
+from fastapi import Depends, FastAPI, Request, Security
 from fastapi.dependencies.utils import solve_dependencies
 from fastapi.testclient import TestClient
+from httpx import AsyncClient
 
 app = FastAPI()
 
@@ -117,6 +119,7 @@ async def get_depend_cache_request(request:Request):
     return {}
 
 client = TestClient(app)
+aclient = AsyncClient(app=app, base_url="http://")
 
 
 def test_normal_counter():
@@ -182,17 +185,19 @@ def test_deep_cache(capsys):
         with capsys.disabled():
             print(repr(response.json()))
 
-from fastapi.dependencies.utils import get_dependant, solve_dependencies
 from fastapi import Request
+from fastapi.dependencies.utils import get_dependant, solve_dependencies
 
-def test_deep_cache_perf(capsys):
+
+@pytest.mark.anyio
+async def test_deep_cache_perf(capsys):
     """
     A test that can be used to test the performace of the dependency cache
     """
     if True:  # pragma: no cover
         counter_holder["counter"] = 0
         with capsys.disabled():
-            call = lambda: client.get("/depend-cache-deep/")
+            call = lambda: simpleawait(aclient.get,"/depend-cache-deep/")
             time_call(call, "deep cache client requests")
             
             call = get_endpoint_call(get_depend_cache_deep)
@@ -200,6 +205,13 @@ def test_deep_cache_perf(capsys):
 
             call = get_endpoint_call(get_depend_cache_request)    
             time_call(call, "request direct solve")
+
+def simpleawait(call, *args):
+    awaitable = call(*args)
+    try:
+        awaitable.send(None)
+    except StopIteration:
+        pass
 
 def get_endpoint_call_new(call, path="/foo"):
     # create a dependency and call it directly
@@ -228,6 +240,7 @@ def get_endpoint_call_old(call, path="/foo"):
     return solve
 
 import fastapi.dependencies.utils
+
 if hasattr(fastapi.dependencies.utils, "DependencySolverContext"):
     get_endpoint_call = get_endpoint_call_new
 else:
