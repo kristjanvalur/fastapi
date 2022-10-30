@@ -1,7 +1,7 @@
 import timeit
 import unittest.mock
 
-from fastapi import Depends, FastAPI, Security
+from fastapi import Depends, FastAPI, Security, Request
 from fastapi.dependencies.utils import solve_dependencies
 from fastapi.testclient import TestClient
 
@@ -53,19 +53,19 @@ async def get_scope_counter(
 
 
 # a deeper and broader dependency hierarchy:
-def dep_a(count: int = Depends(dep_counter)):
+async def dep_a(count: int = Depends(dep_counter)):
     return {"a": count}
 
 
-def dep_b(count: int = Depends(dep_counter)):
+async def dep_b(count: int = Depends(dep_counter)):
     return {"b": count}
 
 
-def dep_c(count: int = Depends(dep_counter)):
+async def dep_c(count: int = Depends(dep_counter)):
     return {"b": count}
 
 
-def dep_aa(
+async def dep_aa(
     a: dict = Depends(dep_a), b: dict = Depends(dep_b), c: dict = Depends(dep_c)
 ):
     result = {}
@@ -75,7 +75,7 @@ def dep_aa(
     return {"aa": result}
 
 
-def dep_bb(
+async def dep_bb(
     a: dict = Depends(dep_a), b: dict = Depends(dep_b), c: dict = Depends(dep_c)
 ):
     result = {}
@@ -85,7 +85,7 @@ def dep_bb(
     return {"bb": result}
 
 
-def dep_cc(
+async def dep_cc(
     a: dict = Depends(dep_a), b: dict = Depends(dep_b), c: dict = Depends(dep_c)
 ):
     result = {}
@@ -112,6 +112,9 @@ async def get_depend_cache_deep(
         "scope_counter_2": scope_count_2,
     }
 
+@app.get("/depend_cache_request")
+async def get_depend_cache_request(request:Request):
+    return {}
 
 client = TestClient(app)
 
@@ -179,18 +182,62 @@ def test_deep_cache(capsys):
         with capsys.disabled():
             print(repr(response.json()))
 
+from fastapi.dependencies.utils import get_dependant, solve_dependencies
+from fastapi import Request
 
 def test_deep_cache_perf(capsys):
     """
     A test that can be used to test the performace of the dependency cache
     """
-    if False:  # pragma: no cover
+    if True:  # pragma: no cover
         counter_holder["counter"] = 0
         with capsys.disabled():
-            timer = timeit.Timer(lambda: client.get("/depend-cache-deep/"))
-            n, t = timer.autorange()
-            tpr = t / n
-            rps = n / t
+            call = lambda: client.get("/depend-cache-deep/")
+            time_call(call, "deep cache client requests")
+            
+            call = get_endpoint_call(get_depend_cache_deep)
+            time_call(call, "deep cache direct solve")
 
-            print(f"did {n} requests in {t} seconds")
-            print(f"time per request: {tpr*1000:.2f}ms, rate: {rps:.2f}/s")
+            call = get_endpoint_call(get_depend_cache_request)    
+            time_call(call, "request direct solve")
+
+def get_endpoint_call_new(call, path="/foo"):
+    # create a dependency and call it directly
+    from fastapi.dependencies.utils import DependencySolverContext
+    dep = get_dependant(path="/foo", call=call)
+    def solve():
+        request = Request(scope={"type":"http"})
+        ctx = DependencySolverContext(request=request)
+        future = solve_dependencies(context=ctx, dependant=dep)
+        try:
+            future.send(None)
+        except StopIteration:
+            pass
+    return solve
+
+def get_endpoint_call_old(call, path="/foo"):
+    # create a dependency and call it directly
+    dep = get_dependant(path="/foo", call=call)
+    def solve():
+        request = Request(scope={"type":"http", "query_string": "", "headers":[]})
+        future = solve_dependencies(request=request, dependant=dep)
+        try:
+            future.send(None)
+        except StopIteration:
+            pass
+    return solve
+
+import fastapi.dependencies.utils
+if hasattr(fastapi.dependencies.utils, "DependencySolverContext"):
+    get_endpoint_call = get_endpoint_call_new
+else:
+    get_endpoint_call = get_endpoint_call_old
+            
+def time_call(call, what):
+    timer = timeit.Timer(call)
+    n, t = timer.autorange()
+    tpr = t / n
+    rps = n / t
+    print(what)
+    print(f"did {n} calls in {t} seconds")
+    print(f"time per call: {tpr*1000:.2f}ms, rate: {rps:.2f}/s")
